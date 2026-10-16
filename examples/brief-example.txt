@@ -1,0 +1,12 @@
+create 50.00
+add Ama
+add Kofi
+add Esi
+pay Ama 50
+pay Kofi 50
+pay Esi 30
+close
+pay Esi 20
+close
+report
+quit
