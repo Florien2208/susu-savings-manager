@@ -6,11 +6,14 @@ domain and prints results.
 
 from __future__ import annotations
 
+import argparse
 import cmd
 import shlex
 import sys
+from pathlib import Path
 from typing import TextIO
 
+from susu import storage
 from susu.errors import SusuError
 from susu.group import CloseResult, Report, SusuGroup
 from susu.money import Money
@@ -179,10 +182,52 @@ class SusuShell(cmd.Cmd):
         return True
 
 
+class PersistentShell(SusuShell):
+    """A shell that saves the group to a JSON file after every change."""
+
+    def __init__(self, state_path: Path, stdout: TextIO | None = None) -> None:
+        super().__init__(group=storage.load(state_path), stdout=stdout)
+        self.state_path = state_path
+
+    def after_change(self) -> None:
+        storage.save(self.group, self.state_path)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m susu",
+        description="Track one rotating savings group (susu). "
+        "Run with no command for an interactive shell.",
+        epilog="Examples:\n"
+        "  python -m susu                         interactive shell, nothing saved\n"
+        "  python -m susu --state group.json      interactive shell, saved to group.json\n"
+        "  python -m susu --state group.json pay Esi 30\n"
+        "                                         run one command and save",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--state", type=Path, help="JSON file to load the group from and save it to")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="one command to run, e.g. 'report'")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
-    shell = SusuShell()
-    shell.cmdloop()
-    return 0
+    args = build_parser().parse_args(argv)
+
+    try:
+        shell = PersistentShell(args.state) if args.state else SusuShell()
+    except SusuError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    if not args.command:
+        shell.cmdloop()
+        return 0
+
+    if not args.state:
+        print("Error: one-shot commands need --state FILE so the group is remembered", file=sys.stderr)
+        return 2
+    shell.onecmd(shlex.join(args.command))
+    return 1 if shell.last_error else 0
 
 
 if __name__ == "__main__":
